@@ -18,6 +18,8 @@
 #define MSG_PEERS	7
 #define MSG_HEARTBEAT	8
 
+#define BUFF_SIZE	1024 * 4
+
 typedef struct {
 	uint8_t type;
 	uint32_t len;
@@ -52,6 +54,10 @@ typedef struct {
 	struct sockaddr_storage *peers;
 } peers_payload_t;
 
+typedef struct {
+	uint16_t port;
+} heartbeat_payload_t;
+
 
 /* TODO: Implementar as funçõe snecessárias para interação peer-tracker e
  * descoberta de novos peers;
@@ -64,5 +70,10 @@ typedef struct {
  * [] - Peer que já estava no loop do epoll aceita novo par
  *
  */
+
+int parse_hdr(msg_hdr_t *hdr, uint8_t *buff);
+int parse_payload(void *payload, uint8_t *buff, uint8_t type, uint32_t len);
+
+int recv_payload(int sock, void *payload, size_t len);
 
 #endif /* _PROTOCOL_H */

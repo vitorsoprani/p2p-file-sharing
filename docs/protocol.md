@@ -36,7 +36,7 @@ Os seguintes Opcodes são definidos pelo protocolo:
 | 5          |MSG\_PIECE     | P2P           | 4 + block_len |
 | 6          |MSG\_ANNOUNCE  | Tracker       | 2 bytes       |
 | 7          |MSG\_PEERS     | Tracker       | variável      |
-| 8          |MSG\_HEARTBEAT | Tracker       | 0 bytes       |
+| 8          |MSG\_HEARTBEAT | Tracker       | 2 bytes       |
 
 ## Protocolo Peer-to-Tracker
 A comunicação com o Tracker serve exclusivamente para descoberta de nós. O Tracker não participa da transferência de arquivos.
@@ -55,7 +55,9 @@ A comunicação com o Tracker serve exclusivamente para descoberta de nós. O Tr
 ### MSG\_HEARTBEAT
 - **Direção**: Peer -> Tracker
 - **Descrição**: Sinal de vida periódico enviado pelo Peer para evitar que o Tracker o remova por inatividade.
-- **Payload**: Vazio. O Tracker não envia resposta. O socket TCP pode ser fechado pelo Peer imediatamente após o envio para economizar recursos.
+- **Payload**: Inteiro sem sinal de 16 bits (`uint16_t`) representando a porta TCP onde o Peer atuará como servidor (escutando por conexões de outros peers). O IP é inferido pelo Tracker.
+- ***obs***: as mensagens do tipo annonce e heartbeat são identicas, a diferença é semântica.
+
 
 ## Protocolo Peer-to-Peer
 Esta seção define as mensagens trocadas entre dois Peers conectados.

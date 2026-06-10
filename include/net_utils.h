@@ -14,8 +14,7 @@ int bind_to_address(struct addrinfo *res, struct addrinfo **bound_info);
 int connect_to_address(struct addrinfo *res, struct addrinfo **connected_info);
 int start_listening(int sockfd, int backlog);
 int accept_peer(int listen_fd, struct sockaddr_storage *peer_addr);
-int receive_data(int sockfd, char *buffer, size_t max_len);
-int send_data(int sockfd, const char *buffer, size_t len);
+int recvall_block(int sock, void *buff, size_t len);
 
 #endif /* _NET_UTILS_H */
 

@@ -12,12 +12,12 @@
 #include "../include/net_utils.h"
 #include "../include/protocol.h"
 #include "../include/uthash.h"
+#include "../include/log.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <pthread.h>
-#include <errno.h>
 
 #define HEARTBEAT_TIMEOUT 20 /* Tempo (s) esperado antes de limpar a lista */
 #define PORT "4242" /* Porta na qual o tracker escutará por conexões */
@@ -48,7 +48,7 @@ void *reap_dead_peers(void *arg)
 {
 	while (1) {
 		sleep(HEARTBEAT_TIMEOUT);
-		printf("[Tracker Info] Reaping dead peers...\n");
+		log_info("Reaping dead peers");
 
 		/* INÍCIO SEÇÃO CRÍTICA */
 		pthread_mutex_lock(&peers_hash_mutex);
@@ -58,7 +58,7 @@ void *reap_dead_peers(void *arg)
 			if (curr_peer->is_alive == 1) {
 				curr_peer->is_alive = 0;
 			} else {
-				printf("[Tracker Info] Removing inactive peer: ");
+				log_info("Dead peer found");
 				HASH_DEL(peers_hash, curr_peer);
 				free(curr_peer);
 			}
@@ -77,7 +77,7 @@ int main(int argc, char **argv)
 	struct addrinfo *bound_info = NULL;
 	pthread_t reaper_thread;
 
-	printf("[Tracker Info] Starting tracker...\n");
+	log_info("Strating tracker");
 
 	res = resolve_tcp_address(NULL, PORT, 1);
 	if (res == NULL)
@@ -96,53 +96,129 @@ int main(int argc, char **argv)
 	start_listening(sockfd, BACKLOG);
 
 	if (pthread_create(&reaper_thread, NULL, reap_dead_peers, NULL) != 0) {
-		fprintf(stderr, "[Err] (main) pthread_create error");
+		log_error("pthread_create error");
 		return EXIT_FAILURE;
 	}
 
 
 	while (1) {
+		uint8_t buff[BUFF_SIZE];
+		msg_hdr_t hdr = {0};
+		size_t len = sizeof(msg_hdr_t);
 		struct sockaddr_storage client_addr;
+		announce_payload_t payload = {0};
+		uint16_t port_in = -1; /* porta em network order */
+		struct peer_key key;
+		struct peer_info *peer = NULL;
 		int client_sockfd = accept_peer(sockfd, &client_addr);
+
 		if (client_sockfd < 0) {
+			log_warn("Connection failed");
 			continue;
 		}
-		printf("[Tracker Info] Connection received...\n");
+		log_info("Connection received");
 
-		announce_msg_t msg;
-		if (recv(client_sockfd, &msg, sizeof(msg), MSG_WAITALL) < sizeof(msg)) {
+		if (recvall_block(client_sockfd, buff, sizeof(hdr)) < len) {
+			log_warn("Failed to receive msg header");
 			close(client_sockfd);
 			continue;
 		}
 
+		parse_hdr(&hdr, buff);
+
+		if (hdr.type == MSG_HEARTBEAT) {
+			if (recvall_block(client_sockfd, buff, hdr.len) < len) {
+				log_warn("Failed to receive heartbeat payload");
+				close(client_sockfd);
+				continue;
+			}
+
+			parse_payload(&payload, buff, hdr.type, hdr.len);
+			port_in = htons(payload.port);
+
+			/* Montando a chave de busca do peer na hash */
+			memset(&key, -1, sizeof(struct peer_key)); /* OBRIGATÓRIO para o funcionamento correto da uthash */
+			key.magic_number = TRACKER_MAGIC_NUMBER;
+
+			memcpy(&key.addr, &client_addr, sizeof(client_addr));
+			if (key.addr.ss_family == AF_INET) {
+				((struct sockaddr_in *)&key.addr)->sin_port = port_in;
+			} else {
+				((struct sockaddr_in6 *)&key.addr)->sin6_port = port_in;
+			}
+
+			log_info("Heartbead received from port %hu.", payload.port);
+
+			/* inicio da seção crítica */
+			pthread_mutex_lock(&peers_hash_mutex);
+			HASH_FIND(hh, peers_hash, &key, sizeof(struct peer_key), peer);
+
+			if (peer != NULL) { /* Estou considerando que o peer não resucita depois de ser considerado morto */
+				peer->is_alive = 1;
+			} else {
+				log_fatal("PEER ZUMBI DETECTADO");
+			}
+			/* fim da seção crítica */
+			pthread_mutex_unlock(&peers_hash_mutex);
+		} else if (hdr.type == MSG_ANNOUNCE) {
+			/* TODO: eliminar essa repetição de código... */
+			if (recvall_block(client_sockfd, buff, hdr.len) < len) {
+				log_warn("Failed to receive announce payload");
+				close(client_sockfd);
+				continue;
+			}
+
+			parse_payload(&payload, buff, hdr.type, hdr.len);
+			port_in = htons(payload.port);
+
+			/* Montando a chave de busca do peer na hash */
+			memset(&key, -1, sizeof(struct peer_key)); /* OBRIGATÓRIO para o funcionamento correto da uthash */
+			key.magic_number = TRACKER_MAGIC_NUMBER;
+
+			memcpy(&key.addr, &client_addr, sizeof(client_addr));
+			if (key.addr.ss_family == AF_INET) {
+				((struct sockaddr_in *)&key.addr)->sin_port = port_in;
+			} else {
+				((struct sockaddr_in6 *)&key.addr)->sin6_port = port_in;
+			}
+
+			log_info("Announce received from port %hu.", payload.port);
+
+			pthread_mutex_lock(&peers_hash_mutex);
+			HASH_FIND(hh, peers_hash, &key, sizeof(struct peer_key), peer);
+			if (peer != NULL)
+				log_warn("Old peer making an announce");
+
+	}
+
+#if 0
 		struct peer_key key;
-		memset(&key, 0, sizeof(struct peer_key)); /* OBRIGATÓRIO para o funcionamento correto da uthash */
+		memset(&key, -1, sizeof(struct peer_key)); /* OBRIGATÓRIO para o funcionamento correto da uthash */
 		key.magic_number = TRACKER_MAGIC_NUMBER;
 
 		memcpy(&key.addr, &client_addr, sizeof(struct sockaddr_storage));
 		if (key.addr.ss_family == AF_INET) {
-			/* Preciso usar htons pois key.addr será usada para comunicações... */
 			((struct sockaddr_in *)&key.addr)->sin_port = htons(msg.listen_port);
 		} else {
-			((struct sockaddr_in6 *)&key.addr)->sin6_port = htons(msg.listen_port);
+			((struct sockaddr_in5 *)&key.addr)->sin6_port = htons(msg.listen_port);
 		}
 
-		/* INICIO DA SEÇÃO CRÍTICA */
+		/* inicio da seção crítica */
 		pthread_mutex_lock(&peers_hash_mutex);
 
-		struct peer_info *p = NULL;
-		HASH_FIND(hh, peers_hash, &key, sizeof(struct peer_key), p);
+		struct peer_info *p = null;
+		hash_find(hh, peers_hash, &key, sizeof(struct peer_key), p);
 
-		if (p == NULL) {
-			/* Peer ainda não existe */
+		if (p == null) {
+			/* peer ainda não existe */
 			p = malloc(sizeof(struct peer_info));
 			memset(p, 0, sizeof(struct peer_info));
 			p->key = key;
 			p->is_alive = 1;
-			HASH_ADD(hh, peers_hash, key, sizeof(struct peer_key), p);
-			printf("[Tracker] Novo peer adicionado à swarm.\n");
+			hash_add(hh, peers_hash, key, sizeof(struct peer_key), p);
+			printf("[tracker] novo peer adicionado à swarm.\n");
 		} else {
-			/* Peer ja existe, é um  heartbeat announce */
+			/* peer ja existe, é um  heartbeat announce */
 			p->is_alive = 1;
 		}
 
@@ -190,5 +266,6 @@ int main(int argc, char **argv)
 	}
 
 	return EXIT_SUCCESS;
+#endif
 }
 

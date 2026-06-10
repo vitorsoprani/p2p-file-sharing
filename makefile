@@ -15,7 +15,7 @@ TRACKER_OBJS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.o, $(TRACKER_SRCS))
 COMMON_OBJS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.o, $(COMMON_SRCS))
 
 CC=gcc
-CC_FLAGS=-c -std=gnu99 -Wall -Wextra
+CC_FLAGS=-c -std=gnu99 -Wall -Wextra -DLOG_USE_COLOR
 
 LD_FLAGS=-lpthread
 

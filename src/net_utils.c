@@ -1,9 +1,12 @@
 #include "../include/net_utils.h"
+#include "../include/log.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <errno.h>
+#include <string.h>
 
 void print_sockaddr_storage(struct sockaddr_storage *storage)
 {
@@ -27,7 +30,7 @@ void print_sockaddr_storage(struct sockaddr_storage *storage)
 
 	dst = inet_ntop(storage->ss_family, in_addr, ipstr, INET6_ADDRSTRLEN);
 	if (dst == NULL) {
-		perror("[Err] (print_sockaddr_storag) entop error");
+		log_error("entop error");
 		exit(EXIT_FAILURE);
 	}
 
@@ -58,7 +61,7 @@ void print_addrinfo(struct addrinfo *addr)
 
 	dst = inet_ntop(addr->ai_family, in_addr, ipstr, INET6_ADDRSTRLEN);
 	if (dst == NULL) {
-		perror("[Err] (print_addrinfo) ntop error");
+		log_error("ntop error");
 		exit(EXIT_FAILURE);
 	}
 
@@ -79,7 +82,7 @@ struct addrinfo* resolve_tcp_address(const char *node, const char *service, int 
 
 	status = getaddrinfo(node, service, &hints, &res);
 	if (status != 0) {
-		fprintf(stderr, "[Err] (resolve_tcp_address) gai error: %s\n",
+		log_error("[Err] (resolve_tcp_address) gai error: %s\n",
 			gai_strerror(status));
 		return NULL;
 	}
@@ -95,7 +98,7 @@ int bind_to_address(struct addrinfo *res, struct addrinfo **bound_info)
 	for (p = res; p != NULL; p = p->ai_next) {
 		sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
 		if (sockfd < 0) {
-			perror("[Err] (bind_to_address) socket error");
+			log_warn("socket error");
 			continue;
 		}
 
@@ -110,7 +113,7 @@ int bind_to_address(struct addrinfo *res, struct addrinfo **bound_info)
 		close(sockfd);
 	}
 
-	perror("[Err] (bind_to_address) socket/bind error");
+	log_error("socket/bind error");
 	return -1;
 }
 
@@ -122,7 +125,7 @@ int connect_to_address(struct addrinfo *res, struct addrinfo **connected_info)
 	for (p = res; p != NULL; p = p->ai_next) {
 		sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
 		if (sockfd < 0) {
-			perror("[Err] (connect_to_address) socket error");
+			log_warn("socket error");
 			continue;
 		}
 
@@ -135,14 +138,14 @@ int connect_to_address(struct addrinfo *res, struct addrinfo **connected_info)
 		close(sockfd);
 	}
 
-	perror("[Err] (connect_to_address) socket/connect error");
+	log_error("socket/connect error");
 	return -1;
 }
 
 int start_listening(int sockfd, int backlog)
 {
 	if (listen(sockfd, backlog) < 0) {
-		perror("[Err] (start_listening) listen error");
+		log_error("listen error");
 		return -1;
 	}
 	return 0;
@@ -154,32 +157,40 @@ int accept_peer(int listen_fd, struct sockaddr_storage *peer_addr)
 	int con_sockfd = accept(listen_fd, (struct sockaddr *)peer_addr, &peer_addr_size);
 
 	if (con_sockfd < 0) {
-		perror("[Err] (accept_peer) accept error");
+		log_error("accept error");
 		return -1;
 	}
 	return con_sockfd;
 }
 
-int receive_data(int sockfd, char *buffer, size_t max_len)
+int recvall_block(int sock, void *buff, size_t len)
 {
-	int bytes_recvd = recv(sockfd, buffer, max_len, 0);
-	if (bytes_recvd < 0) {
-		perror("[Err] (receive_data) recv error");
-		return -1;
-	} else if (bytes_recvd == 0) {
-		fprintf(stderr, "[Err] (receive_data) recv error: connection closed by peer\n");
-		return -1;
-	}
-	return bytes_recvd;
-}
+	size_t bytes_left = len;
+	size_t bytes_recvd;
+	uint8_t *ptr = (uint8_t*)buff;
 
-int send_data(int sockfd, const char *buffer, size_t len)
-{
-	int bytes_sent = send(sockfd, buffer, len, 0);
-	if (bytes_sent < 0) {
-		perror("[Err] (send_data) send error");
-		return -1;
-	}
-	return bytes_sent;
-}
+	while (bytes_left > 0) {
+		bytes_recvd = recv(sock, buff, bytes_left, 0);
 
+		if (bytes_recvd < 0) {
+			if (errno == EINTR)
+				continue;
+
+			log_error("%s", strerror(errno));
+			exit(EXIT_FAILURE); /* provisório */
+
+			return -1; /* indica para o caller que deu ruim */
+		}
+
+		if (bytes_recvd == 0) {
+			log_warn("Connection closed by peer");
+			/* a conexão foi fechada */
+			break;
+		}
+
+		bytes_left -= bytes_recvd;
+		ptr += bytes_recvd;
+	}
+
+	return (len - bytes_recvd);
+}
