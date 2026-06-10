@@ -104,9 +104,8 @@ int main(int argc, char **argv)
 	while (1) {
 		uint8_t buff[BUFF_SIZE];
 		msg_hdr_t hdr = {0};
-		size_t len = sizeof(msg_hdr_t);
+		ssize_t len = sizeof(msg_hdr_t);
 		struct sockaddr_storage client_addr;
-		announce_payload_t payload = {0};
 		uint16_t port_in = -1; /* porta em network order */
 		struct peer_key key;
 		struct peer_info *peer = NULL;
@@ -125,10 +124,12 @@ int main(int argc, char **argv)
 		}
 
 		parse_hdr(&hdr, buff);
-
 		if (hdr.type == MSG_HEARTBEAT) {
+			heartbeat_payload_t payload = {0};
+			len = sizeof(heartbeat_payload_t);
+
 			if (recvall_block(client_sockfd, buff, hdr.len) < len) {
-				log_warn("Failed to receive heartbeat payload");
+				log_warn("Failed to receive payload");
 				close(client_sockfd);
 				continue;
 			}
@@ -158,16 +159,17 @@ int main(int argc, char **argv)
 			} else {
 				log_fatal("PEER ZUMBI DETECTADO");
 			}
-			/* fim da seção crítica */
 			pthread_mutex_unlock(&peers_hash_mutex);
+			/* fim da seção crítica */
 		} else if (hdr.type == MSG_ANNOUNCE) {
-			/* TODO: eliminar essa repetição de código... */
+			announce_payload_t payload = {0};
+			len = sizeof(announce_payload_t);
+
 			if (recvall_block(client_sockfd, buff, hdr.len) < len) {
-				log_warn("Failed to receive announce payload");
+				log_warn("Failed to receive payload");
 				close(client_sockfd);
 				continue;
 			}
-
 			parse_payload(&payload, buff, hdr.type, hdr.len);
 			port_in = htons(payload.port);
 
@@ -181,7 +183,6 @@ int main(int argc, char **argv)
 			} else {
 				((struct sockaddr_in6 *)&key.addr)->sin6_port = port_in;
 			}
-
 			log_info("Announce received from port %hu.", payload.port);
 
 			pthread_mutex_lock(&peers_hash_mutex);
@@ -189,83 +190,11 @@ int main(int argc, char **argv)
 			if (peer != NULL)
 				log_warn("Old peer making an announce");
 
-	}
-
-#if 0
-		struct peer_key key;
-		memset(&key, -1, sizeof(struct peer_key)); /* OBRIGATÓRIO para o funcionamento correto da uthash */
-		key.magic_number = TRACKER_MAGIC_NUMBER;
-
-		memcpy(&key.addr, &client_addr, sizeof(struct sockaddr_storage));
-		if (key.addr.ss_family == AF_INET) {
-			((struct sockaddr_in *)&key.addr)->sin_port = htons(msg.listen_port);
-		} else {
-			((struct sockaddr_in5 *)&key.addr)->sin6_port = htons(msg.listen_port);
+			pthread_mutex_unlock(&peers_hash_mutex);
 		}
 
-		/* inicio da seção crítica */
-		pthread_mutex_lock(&peers_hash_mutex);
-
-		struct peer_info *p = null;
-		hash_find(hh, peers_hash, &key, sizeof(struct peer_key), p);
-
-		if (p == null) {
-			/* peer ainda não existe */
-			p = malloc(sizeof(struct peer_info));
-			memset(p, 0, sizeof(struct peer_info));
-			p->key = key;
-			p->is_alive = 1;
-			hash_add(hh, peers_hash, key, sizeof(struct peer_key), p);
-			printf("[tracker] novo peer adicionado à swarm.\n");
-		} else {
-			/* peer ja existe, é um  heartbeat announce */
-			p->is_alive = 1;
-		}
-
-		/* Prepara a lista de resposta ANTES de liberar o lock */
-		/* APENAS o sockaddr_storage são enviados */
-		uint32_t count = HASH_COUNT(peers_hash);
-		wire_peer_t *peer_array = NULL;
-
-		if (count > 0) {
-			peer_array = malloc(count * sizeof(wire_peer_t));
-			struct peer_info *cur, *tmp;
-			int i = 0;
-			HASH_ITER(hh, peers_hash, cur, tmp) {
-				memcpy(&peer_array[i].addr, &(cur->key.addr), sizeof(struct sockaddr_storage));
-				i++;
-			}
-		}
-
-		/* FIM DA SEÇÃO CRÍTICA */
-		pthread_mutex_unlock(&peers_hash_mutex);
-
-		tracker_resp_header_t header;
-		header.peer_count = count;
-
-		if (send(client_sockfd, &header, sizeof(header), MSG_NOSIGNAL) < 0) {
-			if (errno == EPIPE) {
-				/* cliente ja fechou o pipe, era um heartbeat */
-			} else {
-				perror("[Tracker Err] (main) send error");
-			}
-		} else if (count > 0) {
-			if (send(client_sockfd, peer_array, count * sizeof(wire_peer_t), MSG_NOSIGNAL) < 0) {
-				if (errno == EPIPE) {
-					 /* Peer perdeu o interesse ou fechou antecipadamente. Normal. */
-				} else {
-					perror("[Tracker Err] (main) send error");
-				}
-			}
-		}
-
-		if (peer_array) {
-		    free(peer_array);
-		}
-		close(client_sockfd);
 	}
 
 	return EXIT_SUCCESS;
-#endif
 }
 

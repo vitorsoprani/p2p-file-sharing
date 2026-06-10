@@ -163,10 +163,10 @@ int accept_peer(int listen_fd, struct sockaddr_storage *peer_addr)
 	return con_sockfd;
 }
 
-int recvall_block(int sock, void *buff, size_t len)
+ssize_t recvall_block(int sock, void *buff, size_t len)
 {
 	size_t bytes_left = len;
-	size_t bytes_recvd;
+	ssize_t bytes_recvd; /* para poder assumir o valor -1 */
 	uint8_t *ptr = (uint8_t*)buff;
 
 	while (bytes_left > 0) {
@@ -191,6 +191,6 @@ int recvall_block(int sock, void *buff, size_t len)
 		bytes_left -= bytes_recvd;
 		ptr += bytes_recvd;
 	}
-
-	return (len - bytes_recvd);
+	log_trace("%ld bytes received", bytes_recvd);
+	return bytes_recvd;
 }

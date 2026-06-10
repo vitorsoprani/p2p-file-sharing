@@ -8,12 +8,15 @@
 #include "../include/net_utils.h"
 #include "../include/protocol.h"
 #include "../include/uthash.h"
+#include "../include/log.h"
+
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <pthread.h>
 #include <string.h>
+#include <errno.h>
 #include <time.h> /* Necessário para srand() e time() */
 
 #define TRACKER_IP "localhost"
@@ -90,11 +93,12 @@ void add_peer_to_hash(struct sockaddr_storage *new_addr)
  * get_peers_list: 1 para transferir a lista completa (inicialização).
  * 0 para apenas enviar o status e fechar a ligação (heartbeat).
  */
-void announce_to_tracker(int get_peers_list)
+void announce_to_tracker()
 {
+	msg_hdr_t hdr = {0};
 	struct addrinfo *res = resolve_tcp_address(TRACKER_IP, TRACKER_PORT, 0);
 	if (res == NULL) {
-		fprintf(stderr, "[Client Err] Couldnt resolve tracker addr.\n");
+		log_error("Couldnt resolve tracker addr.\n");
 		return;
 	}
 
@@ -102,11 +106,25 @@ void announce_to_tracker(int get_peers_list)
 	freeaddrinfo(res);
 
 	if (tracker_fd < 0) {
-		fprintf(stderr, "[Client Err] Couldnt connect to tracker\n");
+		log_error("Couldnt connect to tracker\n");
 		return;
 	}
 
-	announce_msg_t msg;
+	/* Envia o header */
+	hdr.type = MSG_ANNOUNCE;
+	hdr.len = htonl(sizeof(announce_payload_t));
+	log_trace("sending %ld bytes", sizeof(hdr));
+	if (send(tracker_fd, &hdr, sizeof(hdr), 0) < sizeof(hdr)) {
+		log_error("Failed to send an announce to the tracker: %s", strerror(errno));
+		close(tracker_fd);
+		exit(EXIT_FAILURE);
+		return;
+	}
+
+
+
+#if 0
+		announce_msg_t msg;
 	msg.listen_port = my_listen_port;
 
 	if (send_data(tracker_fd, (char *)&msg, sizeof(msg)) < 0) {
@@ -148,6 +166,7 @@ void announce_to_tracker(int get_peers_list)
 	}
 
 	close(tracker_fd);
+#endif
 }
 
 void *heartbeat_thread(void *arg)
@@ -156,7 +175,7 @@ void *heartbeat_thread(void *arg)
 	while (1) {
 		sleep(HEARTBEAT_INTERVAL);
 		printf("[Client Info] sending heartbeat...\n");
-		announce_to_tracker(0);
+		announce_to_tracker();
 	}
 	return NULL;
 }
@@ -177,7 +196,9 @@ int main(int argc, char **argv)
 	printf("[Client Info] Magic Number: %d\n", client_magic_number);
 
 	printf("[Client Info] Contacting the tracker...\n");
-	announce_to_tracker(1);
+	announce_to_tracker();
+
+#if 0
 	print_known_peers();
 
 	pthread_t hb_thread;
@@ -187,6 +208,7 @@ int main(int argc, char **argv)
 	}
 
 	pthread_join(hb_thread, NULL);
+#endif
 
 	return EXIT_SUCCESS;
 }
