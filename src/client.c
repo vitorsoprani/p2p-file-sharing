@@ -16,7 +16,6 @@
 #include <string.h>
 #include <time.h> /* Necessário para srand() e time() */
 
-#define TRACKER_IP "localhost"
 #define TRACKER_PORT "4242"
 #define HEARTBEAT_INTERVAL 10
 
@@ -24,6 +23,8 @@ uint16_t my_listen_port;
 
 /* Número mágico exclusivo desta instância do cliente */
 int client_magic_number;
+
+char TRACKER_IP[128];
 
 /* Estruturas da uthash.h */
 
@@ -163,12 +164,13 @@ void *heartbeat_thread(void *arg)
 
 int main(int argc, char **argv)
 {
-	if (argc < 2) {
-		fprintf(stderr, "Uso: %s <porta_p2p_do_cliente>\n", argv[0]);
+	if (argc < 3) {
+		fprintf(stderr, "Uso: %s <porta_p2p_do_cliente> <ip_do_host_do_tracker>\n", argv[0]);
 		return EXIT_FAILURE;
 	}
 
 	my_listen_port = (uint16_t)atoi(argv[1]);
+	strcpy(TRACKER_IP, argv[2]);
 
 	srand(time(NULL));
 	client_magic_number = rand();
