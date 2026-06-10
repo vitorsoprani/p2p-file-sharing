@@ -9,24 +9,60 @@
 #include <stdint.h>
 #include <sys/socket.h>
 
-/* O que o peer envia para o tracker ao conectar (announce) */
+#define MSG_HANDSHAKE	1
+#define MSG_BITFIELD	2
+#define MSG_HAVE	3
+#define MSG_REQUEST	4
+#define MSG_PIECE	5
+#define MSG_ANNOUNCE	6
+#define MSG_PEERS	7
+#define MSG_HEARTBEAT	8
+
 typedef struct {
-/*
- * O tracker sabe o IP do peer através do accept(), mas a porta que o accept()
- * retorna é a porta EFÊMERA (aleatória). O peer precisa informar ao tracker
- * em qual porta ele está escutando como servidor para os outros peers.
+	uint8_t type;
+	uint32_t len;
+} msg_hdr_t;
+
+typedef struct {
+	uint16_t port;
+} handshake_payload_t;
+
+typedef struct {
+	uint8_t *bits;
+} bitfield_payload_t;
+
+typedef struct {
+	uint32_t index;
+} have_payload_t;
+
+typedef struct {
+	uint32_t index;
+} request_payload_t;
+
+typedef struct {
+	uint32_t index;
+	uint8_t *piece;
+} piece_payload_t;
+
+typedef struct {
+	uint16_t port;
+} announce_payload_t;
+
+typedef struct {
+	struct sockaddr_storage *peers;
+} peers_payload_t;
+
+
+/* TODO: Implementar as funçõe snecessárias para interação peer-tracker e
+ * descoberta de novos peers;
+ *
+ * [] - Peer faz announce para tracker
+ * [] - Peer recebe lista do tracker
+ * [] - Peer envia heartbeats para o tracker
+ *
+ * [] - Peer se conecta com os pares recebidos
+ * [] - Peer que já estava no loop do epoll aceita novo par
+ *
  */
-	uint16_t listen_port;
-} announce_msg_t;
-
-/* Cabeçalho de resposta do tracker para o peer */
-typedef struct {
-	uint32_t peer_count; /* Número de peers na lista */
-} tracker_resp_header_t;
-
-/* Estrutura de cada peer enviada na lista */
-typedef struct {
-	struct sockaddr_storage addr; /* Endereço e porta do peer */
-} wire_peer_t;
 
 #endif /* _PROTOCOL_H */
